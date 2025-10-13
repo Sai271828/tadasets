@@ -142,6 +142,39 @@ class TestTorus:
         assert mean_count > 95 and mean_count < 105
         assert std_count < 25
 
+class TestGenusGSurface:
+    def test_n(self):
+        t = tadasets.genusg_surface(n=345, genus=3, noise=0.1)
+        assert t.shape[0] == 345
+
+    def test_plt(self):
+        t = tadasets.genusg_surface(n=345, genus=3)
+        tadasets.plot3d(t)
+
+    def test_ambient(self):
+        s = tadasets.genusg_surface(n=200, genus=3, ambient=15)
+        assert s.shape == (200, 15)
+
+    def test_uniform(self):
+        c, a = 3.183, 1
+        s = tadasets.genusg_surface(n=16000 * 2, c=c, a=a, genus=2, uniform=True)
+        epsilon = 0.5
+
+        nbrs = NearestNeighbors(radius=epsilon).fit(s)
+
+        # Compute the number of points within the epsilon-ball around each point
+        distances, indices = nbrs.radius_neighbors(s)
+        num_points_in_ball = [len(ind) for ind in indices]
+
+        # Caculate the mean and standard deviation of the counts
+        # For a uniform sampling on the sphere, this ditribution should be roughly normal
+        # The expected mean is n/160 = 100
+        # The standard deviation should be approximately np.sqrt(100) = 10
+        mean_count = np.mean(num_points_in_ball)
+        std_count = np.std(num_points_in_ball)
+
+        assert mean_count > 90 and mean_count < 110
+        assert std_count < 25
 
 class TestSwissRoll:
     def test_n(self):

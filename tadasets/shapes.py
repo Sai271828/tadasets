@@ -3,7 +3,7 @@ from .dimension import embed
 from .rotate import rotate_2D
 from typing import Optional
 
-__all__ = ["torus", "dsphere", "sphere", "swiss_roll", "infty_sign", "eyeglasses"]
+__all__ = ["torus", "dsphere", "sphere", "genusg_surface", "swiss_roll", "infty_sign", "eyeglasses"]
 
 
 # TODO: Make a base class that controls `ambient` and `noise`.
@@ -181,6 +181,141 @@ def torus(
         data[:, 0] = (c + a * np.cos(theta)) * np.cos(phi)
         data[:, 1] = (c + a * np.cos(theta)) * np.sin(phi)
         data[:, 2] = a * np.sin(theta)
+
+    if noise:
+        data += noise * rng.standard_normal(data.shape)
+
+    if ambient:
+        data = embed(data, ambient)
+
+    return data
+
+
+def genusg_surface(
+    n: int = 100,
+    genus: int = 2,
+    c: float = 2.0,
+    a: float = 1.0,
+    noise: Optional[float] = None,
+    ambient: Optional[int] = None,
+    seed: Optional[int] = None,
+    uniform: bool = False,
+) -> np.ndarray:
+    """
+    Sample `n` data points from a genus-g surface. The genus is assumed to be at least 2.
+
+    Parameters
+    ----------
+    n : int, default=100
+        Number of data points in shape.
+    genus : int, default=2
+        Genus of the surface.
+    c : float, default=2.0
+        Distance from center to center of tube.
+    a : float, default=1.0
+        Radius of tube.
+    noise: float, optional
+        Standard deviation of normally distributed noise added to data.
+    ambient : int, optional
+        Embed the surface into a space with ambient dimension equal to `ambient`. The surface is randomly rotated in this high dimensional space.
+    seed : int, optional
+        Seed for random state.
+    uniform : bool, default=False
+        If True, sample points uniformly on the surface.
+
+    Returns
+    -------
+    data : np.ndarray
+        An ``(n,3)`` np.ndarray.
+    """
+    rng = np.random.default_rng(seed)
+    # Sample points on the surface
+
+    assert genus >= 2, "Genus should be at least 2"
+    assert a <= c, "The major radius should be larger than the minor radius"
+    # Generate the left most donut
+    # For uniform sampling, we can use rejection sampling as done for genus 1
+
+    n_samples_per_genus = n // genus
+
+    left_donut = []
+    while len(left_donut) < n_samples_per_genus + n - n_samples_per_genus * genus:
+        u = np.random.uniform(0, 2 * np.pi)
+        v = np.random.uniform(0, 2 * np.pi)
+        x = (c + a * np.cos(v)) * np.cos(u)
+        y = (c + a * np.cos(v)) * np.sin(u)
+        z = a * np.sin(v)
+        if x < c + 3 * a / 4:
+            if uniform:
+                # REJECTION SAMPLING TO ENSURE UNIFORMITY
+                # The map from u,v to x,y,z is not area-preserving, so we use rejection sampling to ensure uniformity
+                jacobian = a * (c + a * np.cos(v))
+                acceptance_prob = jacobian / (a * (c + a))
+                if np.random.uniform(0, 1) < acceptance_prob:
+                    left_donut.append((x, y, z))
+
+            else:
+                left_donut.append((x, y, z))
+    left_donut = np.array(left_donut)
+
+    # Generate the right most donut
+    right_donut = []
+    while len(right_donut) < n_samples_per_genus:
+        u = np.random.uniform(0, 2 * np.pi)
+        v = np.random.uniform(0, 2 * np.pi)
+        x = (c + a * np.cos(v)) * np.cos(u)
+        y = (c + a * np.cos(v)) * np.sin(u)
+        z = a * np.sin(v)
+        if x > a / 4 - c - a:
+            if uniform:
+                # REJECTION SAMPLING TO ENSURE UNIFORMITY
+                # The map from u,v to x,y,z is not area-preserving, so we use rejection sampling to ensure uniformity
+                jacobian = a * (c + a * np.cos(v))
+                acceptance_prob = jacobian / (a * (c + a))
+                if np.random.uniform(0, 1) < acceptance_prob:
+                    right_donut.append((x, y, z))
+
+            else:
+                right_donut.append((x, y, z))
+    right_donut = np.array(right_donut)
+
+    # Generate middle donuts
+    middle_donuts = []
+    while len(middle_donuts) < n_samples_per_genus:
+        u = np.random.uniform(0, 2 * np.pi)
+        v = np.random.uniform(0, 2 * np.pi)
+        x = (c + a * np.cos(v)) * np.cos(u)
+        y = (c + a * np.cos(v)) * np.sin(u)
+        z = a * np.sin(v)
+        if (x > a / 4 - c - a) & (x < c + 3 * a / 4):
+            if uniform:
+                # REJECTION SAMPLING TO ENSURE UNIFORMITY
+                # The map from u,v to x,y,z is not area-preserving, so we use rejection sampling to ensure uniformity
+                jacobian = a * (c + a * np.cos(v))
+                acceptance_prob = jacobian / (a * (c + a))
+                if np.random.uniform(0, 1) < acceptance_prob:
+                    middle_donuts.append((x, y, z))
+
+            else:
+                middle_donuts.append((x, y, z))
+    middle_donuts = np.array(middle_donuts)
+
+    # Combine all points
+    # If genus is 2, we have only left and right donuts
+    if genus == 2:
+        # MOVE RIGHT DONUT TO THE RIGHT
+        right_donut[:, 0] += 2 * c + 3 * a / 2
+        data = np.vstack((left_donut, right_donut))
+    else:
+        # Move middle donuts to the right positions
+        move_distances = [(2 * c + 3 * a / 2) * (i + 1) for i in range(genus - 1)]
+        for i in range(0, genus - 2):
+            temp_donut = middle_donuts.copy()
+            temp_donut[:, 0] += move_distances[i]
+            left_donut = np.vstack((left_donut, temp_donut))
+        # Move right donut to the rightmost position
+        right_donut[:, 0] += move_distances[-1]
+        data = np.vstack((left_donut, right_donut))
 
     if noise:
         data += noise * rng.standard_normal(data.shape)
